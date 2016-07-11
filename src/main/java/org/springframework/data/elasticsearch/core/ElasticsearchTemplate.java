@@ -667,16 +667,15 @@ public class ElasticsearchTemplate implements ElasticsearchOperations, Applicati
 		String scrollId = scan(searchQuery, scrollTimeInMillis, true);
 
 		BulkRequestBuilder bulkRequestBuilder = client.prepareBulk();
-		List<String> ids = new ArrayList<String>();
+		List<IndexInfo> indexInfos = new ArrayList<IndexInfo>();
 		boolean hasRecords = true;
 		while (hasRecords) {
-			Page<String> page = scroll(scrollId, scrollTimeInMillis, new SearchResultMapper() {
+			Page<IndexInfo> page = scroll(scrollId, scrollTimeInMillis, new SearchResultMapper() {
 				@Override
 				public <T> AggregatedPage<T> mapResults(SearchResponse response, Class<T> clazz, Pageable pageable) {
-					List<String> result = new ArrayList<String>();
+					List<IndexInfo> result = new ArrayList<IndexInfo>();
 					for (SearchHit searchHit : response.getHits()) {
-						String id = searchHit.getId();
-						result.add(id);
+						result.add(new IndexInfo(searchHit.getId(), searchHit.getIndex(), searchHit.getType()));
 					}
 					if (result.size() > 0) {
 						return new AggregatedPageImpl<T>((List<T>) result);
@@ -685,14 +684,14 @@ public class ElasticsearchTemplate implements ElasticsearchOperations, Applicati
 				}
 			});
 			if (page != null && page.getContent().size() > 0) {
-				ids.addAll(page.getContent());
+				indexInfos.addAll(page.getContent());
 			} else {
 				hasRecords = false;
 			}
 		}
 
-		for(String id : ids) {
-			bulkRequestBuilder.add(client.prepareDelete(indexName, typeName, id));
+		for(IndexInfo indexInfo : indexInfos) {
+			bulkRequestBuilder.add(client.prepareDelete(indexInfo.getIndexName(), indexInfo.getType(), indexInfo.getId()));
 		}
 
 		if(bulkRequestBuilder.numberOfActions() > 0) {
@@ -1218,5 +1217,29 @@ public class ElasticsearchTemplate implements ElasticsearchOperations, Applicati
 
 	public SuggestResponse suggest(SuggestBuilder.SuggestionBuilder<?> suggestion, Class clazz) {
 		return suggest(suggestion, retrieveIndexNameFromPersistentEntity(clazz));
+	}
+
+	private static class IndexInfo{
+		private String id;
+		private String indexName;
+		private String type;
+
+		public IndexInfo(String id, String indexName, String type) {
+			this.id = id;
+			this.indexName = indexName;
+			this.type = type;
+		}
+
+		public String getId() {
+			return id;
+		}
+
+		public String getIndexName() {
+			return indexName;
+		}
+
+		public String getType() {
+			return type;
+		}
 	}
 }
